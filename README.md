@@ -118,5 +118,5 @@ Distributed under the MIT License. See [LICENSE](LICENSE) for more information.
 
 ---
 <div align="center">
-  <sub>Built with 💚 by <a href="https://github.com/4ngel2769">angeldev0</a></sub>
+Built with 💚 by <a href="https://github.com/4ngel2769">angeldev0</a>
 </div>
