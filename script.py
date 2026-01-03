@@ -6,11 +6,15 @@ import json
 import os
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dotenv import load_dotenv
 
+
+# Load environment variables from .env file
+load_dotenv()
 # Spotify API credentials
-SPOTIFY_CLIENT_ID = 'your_client_id_here'
-SPOTIFY_CLIENT_SECRET = 'your_client_secret_here'
-SPOTIFY_REDIRECT_URI = 'http://localhost:8888/callback'
+SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
+SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
+SPOTIFY_REDIRECT_URI = os.getenv('SPOTIFY_REDIRECT_URI')
 
 # Download settings
 DOWNLOAD_FOLDER = 'i/downloaded_songs'

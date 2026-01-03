@@ -27,6 +27,7 @@ share/python-wheels/
 MANIFEST
 i/
 .env
+cookies.txt
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -181,3 +182,4 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+ytmusic_cookie.txt
