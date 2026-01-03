@@ -2,7 +2,7 @@
 
 # Spotitube
 
-<img src="https://raw.githubusercontent.com/4ngel2769/spotitube/main/assets/logo.png" alt="Spotitube Logo" width="120" height="120">
+<img src="https://raw.githubusercontent.com/4ngel2769/spotitube/main/assets/spotitube.png" alt="Spotitube Logo" width="120" height="120">
 
 **A simple way to download your music library from Spotify and YouTube**
 
@@ -25,9 +25,6 @@
 - [Usage](#usage)
 - [Sponsor](#sponsor)
 - [License](#license)
-
-[Features](#features) • [Prerequisites](#prerequisites) • [Installation](#installation) • [Configuration](#configuration) • [Usage](#usage) • [Sponsor](#sponsor) • [License](#license)
-
 
 ## Introduction
 
