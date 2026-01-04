@@ -29,14 +29,30 @@ def init_spotify():
     """Initialize Spotify client"""
     global sp
     if sp is None:
-        sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
+        # Check if we need to authenticate
+        auth_manager = SpotifyOAuth(
             client_id=SPOTIFY_CLIENT_ID,
             client_secret=SPOTIFY_CLIENT_SECRET,
             redirect_uri=SPOTIFY_REDIRECT_URI,
             scope='user-library-read playlist-read-private',
-            open_browser=True,  # Automatically open browser for login
-            cache_path='.spotify_cache'  # Save token for reuse
-        ))
+            open_browser=True,
+            cache_path='.spotify_cache'
+        )
+        
+        # If no cached token, provide helpful instructions
+        token_info = auth_manager.get_cached_token()
+        if not token_info:
+            print("\n=== Spotify Authentication ===")
+            print("1. A browser will open for Spotify login")
+            print("2. Log in and authorize the app")
+            print("3. After authorization, you'll be redirected to localhost")
+            print("4. Copy the ENTIRE URL from your browser's address bar")
+            print("5. Paste it here when prompted")
+            print("\nNote: The page may show 'unable to connect' - that's OK!")
+            print("Just copy the full URL that starts with your redirect URI\n")
+            input("Press Enter to open browser...")
+        
+        sp = spotipy.Spotify(auth_manager=auth_manager)
     return sp
 
 def get_ytmusic_cookie():
