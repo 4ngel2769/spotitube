@@ -14,13 +14,13 @@ load_dotenv()
 # Spotify API credentials
 SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
 SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
-SPOTIFY_REDIRECT_URI = os.getenv('SPOTIFY_REDIRECT_URI')
+SPOTIFY_REDIRECT_URI = os.getenv('SPOTIFY_REDIRECT_URI', 'http://localhost:8888/callback')
 
 # Download settings
-DOWNLOAD_FOLDER = 'i/downloaded_songs'
-AUDIO_FORMAT = 'mp3'  # Options: mp3, m4a, opus, wav
-AUDIO_QUALITY = '320'  # Options: 128, 192, 256, 320 (kbps)
-MAX_CONCURRENT_DOWNLOADS = 3  # Number of simultaneous downloads
+DOWNLOAD_FOLDER = os.getenv('DOWNLOAD_FOLDER', 'downloaded_songs')
+AUDIO_FORMAT = os.getenv('AUDIO_FORMAT', 'mp3')  # Options: mp3, m4a, opus, wav
+AUDIO_QUALITY = os.getenv('AUDIO_QUALITY', '320')  # Options: 128, 192, 256, 320 (kbps)
+MAX_CONCURRENT_DOWNLOADS = int(os.getenv('MAX_CONCURRENT_DOWNLOADS', '3'))
 
 # Initialize clients
 sp = None
@@ -33,7 +33,9 @@ def init_spotify():
             client_id=SPOTIFY_CLIENT_ID,
             client_secret=SPOTIFY_CLIENT_SECRET,
             redirect_uri=SPOTIFY_REDIRECT_URI,
-            scope='user-library-read playlist-read-private'
+            scope='user-library-read playlist-read-private',
+            open_browser=True,  # Automatically open browser for login
+            cache_path='.spotify_cache'  # Save token for reuse
         ))
     return sp
 
@@ -58,7 +60,7 @@ def get_ytmusic_cookie():
 
 def download_youtube_audio(url, track_name, artist_name):
     """Download audio from YouTube"""
-    Path(DOWNLOAD_FOLDER).mkdir(exist_ok=True)
+    Path(DOWNLOAD_FOLDER).mkdir(parents=True, exist_ok=True)
     
     safe_filename = "".join(c for c in f"{artist_name} - {track_name}" 
                            if c.isalnum() or c in (' ', '-', '_')).strip()
@@ -217,14 +219,7 @@ def get_ytmusic_liked_songs():
     print("Fetching YouTube Music liked songs...")
     print("This uses yt-dlp to fetch your liked songs playlist...")
     
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'extract_flat': True,
-        'cookiefile': 'ytmusic_cookie.txt' if os.path.exists('ytmusic_cookie.txt') else None,
-    }
-    
-    # Create a temporary cookie file in Netscape format
+    # Create cookie file in Netscape format
     cookie_lines = ['# Netscape HTTP Cookie File\n']
     for cookie_pair in cookie.split('; '):
         if '=' in cookie_pair:
@@ -234,7 +229,12 @@ def get_ytmusic_liked_songs():
     with open('cookies.txt', 'w') as f:
         f.writelines(cookie_lines)
     
-    ydl_opts['cookiefile'] = 'cookies.txt'
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': True,
+        'cookiefile': 'cookies.txt',
+    }
     
     liked_songs = []
     
@@ -276,15 +276,19 @@ def get_ytmusic_liked_songs():
     print(f"\nFound {len(liked_songs)} YouTube Music liked songs")
     return liked_songs
 
-def get_ytmusic_playlists():
-    """Get YouTube Music playlists"""
-    print("\n⚠ YouTube Music playlist fetching not implemented in this version")
-    print("  You can manually enter playlist URLs instead")
-    return []
-
 def get_ytmusic_playlist_songs(playlist_url):
     """Get songs from a YouTube Music playlist URL"""
     cookie = get_ytmusic_cookie()
+    
+    # Create cookie file in Netscape format
+    cookie_lines = ['# Netscape HTTP Cookie File\n']
+    for cookie_pair in cookie.split('; '):
+        if '=' in cookie_pair:
+            name, value = cookie_pair.split('=', 1)
+            cookie_lines.append(f'.youtube.com\tTRUE\t/\tTRUE\t0\t{name}\t{value}\n')
+    
+    with open('cookies.txt', 'w') as f:
+        f.writelines(cookie_lines)
     
     ydl_opts = {
         'quiet': True,
