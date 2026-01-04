@@ -184,3 +184,5 @@ cython_debug/
 .cursorindexingignore
 ytmusic_cookie.txt
 spotify_ytmusic_results.json
+.spotify_cache
+downloaded_songs/
