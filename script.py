@@ -35,22 +35,42 @@ def init_spotify():
             client_secret=SPOTIFY_CLIENT_SECRET,
             redirect_uri=SPOTIFY_REDIRECT_URI,
             scope='user-library-read playlist-read-private',
-            open_browser=True,
+            open_browser=False,  # Don't auto-open on headless servers
             cache_path='.spotify_cache'
         )
         
-        # If no cached token, provide helpful instructions
+        # If no cached token, provide manual authentication
         token_info = auth_manager.get_cached_token()
         if not token_info:
             print("\n=== Spotify Authentication ===")
-            print("1. A browser will open for Spotify login")
-            print("2. Log in and authorize the app")
-            print("3. After authorization, you'll be redirected to localhost")
-            print("4. Copy the ENTIRE URL from your browser's address bar")
-            print("5. Paste it here when prompted")
-            print("\nNote: The page may show 'unable to connect' - that's OK!")
-            print("Just copy the full URL that starts with your redirect URI\n")
-            input("Press Enter to open browser...")
+            print("No cached token found. Starting OAuth flow...\n")
+            
+            # Get the authorization URL
+            auth_url = auth_manager.get_authorize_url()
+            
+            print("=" * 70)
+            print("STEP 1: Open this URL in your browser (copy/paste or click):")
+            print("=" * 70)
+            print(f"\n{auth_url}\n")
+            print("=" * 70)
+            print("\nSTEP 2: After logging in and authorizing:")
+            print("  - You'll be redirected to a URL starting with your redirect URI")
+            print("  - The page may show 'unable to connect' or error - THIS IS NORMAL")
+            print("  - Copy the ENTIRE URL from your browser's address bar")
+            print("\nSTEP 3: Paste the full redirect URL here:")
+            print("=" * 70)
+            
+            response_url = input("\nPaste URL: ").strip()
+            
+            try:
+                # Parse the authorization code from the URL
+                code = auth_manager.parse_response_code(response_url)
+                token_info = auth_manager.get_access_token(code)
+                print("\n✓ Successfully authenticated! Token saved for future use.")
+            except Exception as e:
+                print(f"\n✗ Authentication failed: {e}")
+                print("Please make sure you copied the entire URL.")
+                raise
         
         sp = spotipy.Spotify(auth_manager=auth_manager)
     return sp
