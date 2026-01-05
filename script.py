@@ -94,34 +94,56 @@ def get_ytmusic_cookie():
         with open(cookie_file, 'r') as f:
             return f.read().strip()
 
-def download_youtube_audio(url, track_name, artist_name):
+def download_youtube_audio(url, track_name, artist_name, subfolder=None):
     """Download audio from YouTube"""
-    Path(DOWNLOAD_FOLDER).mkdir(parents=True, exist_ok=True)
+    # Determine the download path
+    if subfolder:
+        download_path = os.path.join(DOWNLOAD_FOLDER, subfolder)
+    else:
+        download_path = DOWNLOAD_FOLDER
+    
+    Path(download_path).mkdir(parents=True, exist_ok=True)
     
     safe_filename = "".join(c for c in f"{artist_name} - {track_name}" 
                            if c.isalnum() or c in (' ', '-', '_')).strip()
     
     ydl_opts = {
         'format': 'bestaudio/best',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': AUDIO_FORMAT,
-            'preferredquality': AUDIO_QUALITY,
-        }],
-        'outtmpl': f'{DOWNLOAD_FOLDER}/{safe_filename}.%(ext)s',
+        'postprocessors': [
+            {
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': AUDIO_FORMAT,
+                'preferredquality': AUDIO_QUALITY,
+            },
+            {
+                'key': 'FFmpegMetadata',
+                'add_metadata': True,
+            },
+            {
+                'key': 'EmbedThumbnail',
+            }
+        ],
+        'outtmpl': f'{download_path}/{safe_filename}.%(ext)s',
+        'writethumbnail': True,
         'quiet': True,
         'no_warnings': True,
         'prefer_ffmpeg': True,
+        # Add metadata for better Navidrome compatibility
+        'postprocessor_args': [
+            '-metadata', f'title={track_name}',
+            '-metadata', f'artist={artist_name}',
+            '-metadata', f'album={subfolder if subfolder else "Downloaded"}',
+        ],
     }
     
     try:
         with YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-        return f"{DOWNLOAD_FOLDER}/{safe_filename}.{AUDIO_FORMAT}"
+        return f"{download_path}/{safe_filename}.{AUDIO_FORMAT}"
     except Exception as e:
         return None
 
-def search_youtube_for_song(track_name, artist_name, download=False):
+def search_youtube_for_song(track_name, artist_name, download=False, subfolder=None):
     """Search YouTube and optionally download"""
     query = f"{track_name} {artist_name}"
     
@@ -148,7 +170,8 @@ def search_youtube_for_song(track_name, artist_name, download=False):
                     download_path = download_youtube_audio(
                         video_info['url'], 
                         track_name, 
-                        artist_name
+                        artist_name,
+                        subfolder
                     )
                     video_info['download_path'] = download_path
                 
@@ -179,7 +202,8 @@ def get_spotify_liked_songs():
                 'name': track['name'],
                 'artist': ', '.join([artist['name'] for artist in track['artists']]),
                 'album': track['album']['name'],
-                'source': 'spotify'
+                'source': 'spotify',
+                'collection': 'Spotify Liked Songs'
             })
         
         offset += limit
@@ -190,7 +214,7 @@ def get_spotify_liked_songs():
     print(f"\nFound {len(liked_songs)} Spotify liked songs")
     return liked_songs
 
-def get_spotify_playlist_songs(playlist_id):
+def get_spotify_playlist_songs(playlist_id, playlist_name):
     """Get all songs from a Spotify playlist"""
     sp = init_spotify()
     songs = []
@@ -209,7 +233,8 @@ def get_spotify_playlist_songs(playlist_id):
                     'name': track['name'],
                     'artist': ', '.join([artist['name'] for artist in track['artists']]),
                     'album': track['album']['name'],
-                    'source': 'spotify'
+                    'source': 'spotify',
+                    'collection': playlist_name
                 })
         
         offset += limit
@@ -299,7 +324,8 @@ def get_ytmusic_liked_songs():
                                 'artist': artist.strip(),
                                 'album': 'Unknown Album',
                                 'videoId': entry.get('id', ''),
-                                'source': 'ytmusic'
+                                'source': 'ytmusic',
+                                'collection': 'YouTube Music Liked Songs'
                             })
                             print(f"  Fetched {len(liked_songs)} songs...", end='\r')
                     except Exception as e:
@@ -334,10 +360,15 @@ def get_ytmusic_playlist_songs(playlist_url):
     }
     
     songs = []
+    playlist_name = 'YouTube Music Playlist'
     
     try:
         with YoutubeDL(ydl_opts) as ydl:
             result = ydl.extract_info(playlist_url, download=False)
+            
+            # Get playlist name if available
+            if result and 'title' in result:
+                playlist_name = result['title']
             
             if result and 'entries' in result:
                 for entry in result['entries']:
@@ -355,7 +386,8 @@ def get_ytmusic_playlist_songs(playlist_url):
                                 'artist': artist.strip(),
                                 'album': 'Unknown Album',
                                 'videoId': entry.get('id', ''),
-                                'source': 'ytmusic'
+                                'source': 'ytmusic',
+                                'collection': playlist_name
                             })
                     except Exception:
                         continue
@@ -367,6 +399,10 @@ def get_ytmusic_playlist_songs(playlist_url):
 def process_song(song, download, index, total):
     """Process a single song (search/download)"""
     result = {'spotify': song, 'youtube': None}
+    
+    # Create safe subfolder name from collection
+    collection = song.get('collection', 'Unknown')
+    safe_subfolder = "".join(c for c in collection if c.isalnum() or c in (' ', '-', '_')).strip()
     
     try:
         # If from YouTube Music, we already have the video ID
@@ -382,7 +418,8 @@ def process_song(song, download, index, total):
                 download_path = download_youtube_audio(
                     video_url,
                     song['name'],
-                    song['artist']
+                    song['artist'],
+                    safe_subfolder
                 )
                 if download_path:
                     result['youtube']['download_path'] = download_path
@@ -396,7 +433,8 @@ def process_song(song, download, index, total):
             yt_result = search_youtube_for_song(
                 song['name'],
                 song['artist'],
-                download=download
+                download=download,
+                subfolder=safe_subfolder
             )
             result['youtube'] = yt_result
             
@@ -407,6 +445,8 @@ def process_song(song, download, index, total):
                     return (True, result, f"[{index}/{total}] ✓ Found: {song['name']} - {song['artist']}")
             else:
                 return (False, result, f"[{index}/{total}] ✗ Not found: {song['name']} - {song['artist']}")
+    except Exception as e:
+        return (False, result, f"[{index}/{total}] ✗ Error: {song['name']} - {song['artist']}")
     except Exception as e:
         return (False, result, f"[{index}/{total}] ✗ Error: {song['name']} - {song['artist']}")
 
@@ -462,7 +502,7 @@ def main():
             
             for playlist in selected_playlists:
                 print(f"\nFetching songs from '{playlist['name']}'...")
-                songs = get_spotify_playlist_songs(playlist['id'])
+                songs = get_spotify_playlist_songs(playlist['id'], playlist['name'])
                 all_songs.extend(songs)
     
     # YouTube Music
