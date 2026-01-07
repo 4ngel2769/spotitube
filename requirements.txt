@@ -1,3 +1,4 @@
 spotipy
 yt-dlp
 python-dotenv
+pytest
