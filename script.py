@@ -506,6 +506,13 @@ def process_song(song, download, index, total):
 
 def main():
     print("=== Spotify & YouTube Music Song Finder & Downloader ===\n")
+    print("⚠️  IMPORTANT NOTE ABOUT AUDIO QUALITY:")
+    print("This tool downloads from YouTube, which uses lossy codecs (Opus/AAC).")
+    print("YouTube Music: 256kbps AAC/Opus for premium, 128-160kbps for free")
+    print("Regular YouTube: 160kbps Opus for music, 128kbps for videos")
+    print("\nRecommended format: opus (best quality/size ratio, no re-encoding)")
+    print("Use mp3 only for compatibility (quality loss due to re-encoding)")
+    print("flac/wav: lossless container but source is still lossy (transcoded)\n")
     
     # Choose source
     print("Select source:")
@@ -521,7 +528,15 @@ def main():
     if download_songs:
         print(f"\nDownload settings:")
         print(f"- Format: {AUDIO_FORMAT}")
-        print(f"- Quality: {AUDIO_QUALITY} kbps")
+        if AUDIO_FORMAT == 'opus':
+            print(f"  └─ Best choice! Direct download, no re-encoding")
+        elif AUDIO_FORMAT == 'm4a':
+            print(f"  └─ Good choice! AAC format, widely compatible")
+        elif AUDIO_FORMAT == 'mp3':
+            print(f"      Warning: MP3 causes generation loss (opus→mp3 re-encoding)")
+        elif AUDIO_FORMAT in ['flac', 'wav']:
+            print(f"      Note: Lossless container, but YouTube source is lossy")
+        print(f"- Quality: {AUDIO_QUALITY}")
         print(f"- Location: {DOWNLOAD_FOLDER}/")
         print(f"- Concurrent downloads: {MAX_CONCURRENT_DOWNLOADS}")
         print("\nNote: Requires FFmpeg to be installed on your system")
