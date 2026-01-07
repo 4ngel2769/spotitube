@@ -18,9 +18,16 @@ SPOTIFY_REDIRECT_URI = os.getenv('SPOTIFY_REDIRECT_URI', 'http://localhost:8888/
 
 # Download settings
 DOWNLOAD_FOLDER = os.getenv('DOWNLOAD_FOLDER', 'downloaded_songs')
-AUDIO_FORMAT = os.getenv('AUDIO_FORMAT', 'mp3')  # Options: mp3, m4a, opus, wav
-AUDIO_QUALITY = os.getenv('AUDIO_QUALITY', '320')  # Options: 128, 192, 256, 320 (kbps)
+AUDIO_FORMAT = os.getenv('AUDIO_FORMAT', 'opus')  # Options: opus, m4a, mp3, flac, wav
+AUDIO_QUALITY = os.getenv('AUDIO_QUALITY', 'best')  # Options: best, 256, 192, 160, 128
 MAX_CONCURRENT_DOWNLOADS = int(os.getenv('MAX_CONCURRENT_DOWNLOADS', '3'))
+
+# Audio format quality guide for user reference
+# opus: Best efficiency. Good quality at lower bitrates.
+# m4a (AAC): Good efficiency, widely compatible.
+# mp3: Legacy format for compatibility (older mp3 players).
+# flac: Lossless, but YouTube doesn't have lossless audio (it's transcoded from lossy).
+# wav: Uncompressed, huge files, same issue as flac (transcoded from lossy source).
 
 # Initialize clients
 sp = None
