@@ -114,22 +114,69 @@ def download_youtube_audio(url, track_name, artist_name, subfolder=None):
     safe_filename = "".join(c for c in f"{artist_name} - {track_name}" 
                            if c.isalnum() or c in (' ', '-', '_')).strip()
     
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'postprocessors': [
+    # Configure format selection based on user preference
+    if AUDIO_FORMAT == 'opus':
+        # Download best opus audio
+        format_str = 'bestaudio[ext=webm]/bestaudio'
+        postprocessors = [
             {
                 'key': 'FFmpegExtractAudio',
-                'preferredcodec': AUDIO_FORMAT,
-                'preferredquality': AUDIO_QUALITY,
-            },
-            {
-                'key': 'FFmpegMetadata',
-                'add_metadata': True,
-            },
-            {
-                'key': 'EmbedThumbnail',
+                'preferredcodec': 'opus',
+                'preferredquality': AUDIO_QUALITY if AUDIO_QUALITY != 'best' else '0',
             }
-        ],
+        ]
+    elif AUDIO_FORMAT == 'm4a':
+        # Download best m4a/aac audio
+        format_str = 'bestaudio[ext=m4a]/bestaudio'
+        postprocessors = [
+            {
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'aac',
+                'preferredquality': AUDIO_QUALITY if AUDIO_QUALITY != 'best' else '0',
+            }
+        ]
+    elif AUDIO_FORMAT == 'flac':
+        # Lossless but source is lossy (YouTube)
+        format_str = 'bestaudio/best'
+        postprocessors = [
+            {
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'flac',
+            }
+        ]
+    elif AUDIO_FORMAT == 'wav':
+        # Uncompressed but source is lossy (YouTube)
+        format_str = 'bestaudio/best'
+        postprocessors = [
+            {
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'wav',
+            }
+        ]
+    else:  # mp3 re-encoding
+        format_str = 'bestaudio/best'
+        postprocessors = [
+            {
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': AUDIO_QUALITY if AUDIO_QUALITY != 'best' else '320',
+            }
+        ]
+    
+    # Add metadata and thumbnail
+    postprocessors.extend([
+        {
+            'key': 'FFmpegMetadata',
+            'add_metadata': True,
+        },
+        {
+            'key': 'EmbedThumbnail',
+        }
+    ])
+    
+    ydl_opts = {
+        'format': format_str,
+        'postprocessors': postprocessors,
         'outtmpl': f'{download_path}/{safe_filename}.%(ext)s',
         'writethumbnail': True,
         'quiet': True,
