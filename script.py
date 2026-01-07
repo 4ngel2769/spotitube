@@ -229,43 +229,59 @@ def search_youtube_for_song(track_name, artist_name, download=False, subfolder=N
     return None
 
 def parse_spotify_url(url):
-    patterns = [r'spotify\.com/playlist/([a-zA-Z0-9]+)', r'spotify\.com/track/([a-zA-Z0-9]+)',
-                r'spotify:playlist:([a-zA-Z0-9]+)', r'spotify:track:([a-zA-Z0-9]+)']
-    for pattern in patterns:
+    patterns = [
+        (r'spotify\.com/playlist/([a-zA-Z0-9]+)', 'playlist'),
+        (r'spotify\.com/album/([a-zA-Z0-9]+)', 'album'),
+        (r'spotify\.com/track/([a-zA-Z0-9]+)', 'track'),
+        (r'spotify:playlist:([a-zA-Z0-9]+)', 'playlist'),
+        (r'spotify:album:([a-zA-Z0-9]+)', 'album'),
+        (r'spotify:track:([a-zA-Z0-9]+)', 'track'),
+    ]
+    for pattern, url_type in patterns:
         match = re.search(pattern, url)
         if match:
-            return match.group(1), 'playlist' if 'playlist' in pattern else 'track'
+            return match.group(1), url_type
     return None, None
 
-def get_spotify_playlist_from_url(playlist_url):
-    playlist_id, url_type = parse_spotify_url(playlist_url)
-    if not playlist_id or url_type != 'playlist':
-        print(f"✗ Invalid Spotify URL")
+def get_spotify_playlist_from_url(spotify_url):
+    item_id, url_type = parse_spotify_url(spotify_url)
+    if not item_id or url_type not in ('playlist', 'album'):
+        print(f"✗ Invalid Spotify URL (use playlist or album)")
         return None, []
     try:
         client = init_spotify() if SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET else None
         if not client:
             client = init_spotify_public()
-        playlist = client.playlist(playlist_id)
-        playlist_name = playlist['name']
+        
         songs = []
-        offset = 0
-        while True:
-            results = client.playlist_tracks(playlist_id, limit=100, offset=offset)
-            if not results['items']:
-                break
-            for item in results['items']:
-                if item['track']:
-                    track = item['track']
-                    songs.append({'name': track['name'], 
-                                'artist': ', '.join([a['name'] for a in track['artists']]),
-                                'album': track['album']['name'], 'uri': track['uri'],
-                                'source': 'spotify', 'collection': playlist_name})
-            offset += 100
-            if len(results['items']) < 100:
-                break
-        print(f"✓ Found: {playlist_name} ({len(songs)} tracks)")
-        return playlist_name, songs
+        if url_type == 'album':
+            album = client.album(item_id)
+            collection_name = album['name']
+            for track in album['tracks']['items']:
+                songs.append({'name': track['name'],
+                            'artist': ', '.join([a['name'] for a in track['artists']]),
+                            'album': collection_name, 'uri': track['uri'],
+                            'source': 'spotify', 'collection': collection_name})
+        else:  # playlist
+            playlist = client.playlist(item_id)
+            collection_name = playlist['name']
+            offset = 0
+            while True:
+                results = client.playlist_tracks(item_id, limit=100, offset=offset)
+                if not results['items']:
+                    break
+                for item in results['items']:
+                    if item['track']:
+                        track = item['track']
+                        songs.append({'name': track['name'], 
+                                    'artist': ', '.join([a['name'] for a in track['artists']]),
+                                    'album': track['album']['name'], 'uri': track['uri'],
+                                    'source': 'spotify', 'collection': collection_name})
+                offset += 100
+                if len(results['items']) < 100:
+                    break
+        print(f"✓ Found: {collection_name} ({len(songs)} tracks)")
+        return collection_name, songs
     except Exception as e:
         print(f"✗ Error: {e}")
         return None, []
@@ -512,7 +528,7 @@ def main():
         if source_choice in ['1', '3']:
             print("\n--- SPOTIFY ---")
             if SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET:
-                print("1. Liked\n2. Playlists\n3. Both\n4. Public URL")
+                print("1. Liked\n2. Playlists\n3. Both\n4. Public URL (playlist/album)")
                 spotify_choice = input("\nChoice (1-4): ")
                 if spotify_choice in ['1', '3']:
                     all_songs.extend(get_spotify_liked_songs())

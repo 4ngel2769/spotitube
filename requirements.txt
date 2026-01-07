@@ -1,4 +1,5 @@
 spotipy
 yt-dlp
 python-dotenv
+mutagen
 pytest
