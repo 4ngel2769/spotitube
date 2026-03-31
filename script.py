@@ -1,5 +1,6 @@
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth, SpotifyClientCredentials
+from spotipy.exceptions import SpotifyOauthError
 from yt_dlp import YoutubeDL
 import time
 import json
@@ -16,6 +17,7 @@ load_dotenv()
 SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
 SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
 SPOTIFY_REDIRECT_URI = os.getenv('SPOTIFY_REDIRECT_URI', 'http://localhost:8888/callback')
+SPOTIFY_CACHE_PATH = os.getenv('SPOTIFY_CACHE_PATH', '.spotify_cache')
 
 # Download settings
 DOWNLOAD_FOLDER = os.getenv('DOWNLOAD_FOLDER', 'downloaded_songs')
@@ -66,11 +68,25 @@ def init_spotify():
             redirect_uri=SPOTIFY_REDIRECT_URI,
             scope='user-library-read playlist-read-private',
             open_browser=False,  # Don't auto-open on headless servers
-            cache_path='.spotify_cache'
+            cache_path=SPOTIFY_CACHE_PATH
         )
         
         # If no cached token, provide manual authentication
-        token_info = auth_manager.get_cached_token()
+        try:
+            token_info = auth_manager.get_cached_token()
+        except SpotifyOauthError as e:
+            error_text = str(e).lower()
+            if 'invalid_grant' in error_text or 'refresh token revoked' in error_text:
+                print("⚠️ Spotify refresh token is no longer valid. Re-authentication required.")
+                try:
+                    if os.path.exists(SPOTIFY_CACHE_PATH):
+                        os.remove(SPOTIFY_CACHE_PATH)
+                        print("✓ Removed old Spotify token cache")
+                except OSError as cache_error:
+                    print(f"  ✗ Could not remove token cache: {cache_error}")
+                token_info = None
+            else:
+                raise
         if not token_info:
             print("\n=== Spotify Authentication ===")
             print("No cached token found. Starting OAuth flow...\n")
