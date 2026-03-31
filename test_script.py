@@ -184,6 +184,32 @@ class TestSpotifyAPI:
         script.sp = mock_client
         assert len(script.get_spotify_liked_songs()) == 0
 
+    @patch('script.sp')
+    @patch('script.init_spotify')
+    def test_get_playlist_songs_premium_required(self, mock_init, mock_sp):
+        mock_client = MagicMock()
+        mock_init.return_value = mock_client
+        mock_client.playlist_tracks.side_effect = script.spotipy.SpotifyException(
+            403,
+            -1,
+            "Active premium subscription required for the owner of the app."
+        )
+        script.sp = mock_client
+        assert script.get_spotify_playlist_songs('p1', 'Restricted Playlist') == []
+
+    @patch('script.sp')
+    @patch('script.init_spotify')
+    def test_get_playlists_premium_required(self, mock_init, mock_sp):
+        mock_client = MagicMock()
+        mock_init.return_value = mock_client
+        mock_client.current_user_playlists.side_effect = script.spotipy.SpotifyException(
+            403,
+            -1,
+            "Active premium subscription required for the owner of the app."
+        )
+        script.sp = mock_client
+        assert script.get_spotify_playlists() == []
+
 
 class TestEndToEnd:
     @patch('script.search_youtube_for_song')

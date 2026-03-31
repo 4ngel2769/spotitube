@@ -1,6 +1,6 @@
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth, SpotifyClientCredentials
-from spotipy.exceptions import SpotifyOauthError
+from spotipy.exceptions import SpotifyOauthError, SpotifyException
 from yt_dlp import YoutubeDL
 import time
 import json
@@ -41,6 +41,18 @@ ZOTIFY_PASSWORD = os.getenv('ZOTIFY_PASSWORD', '')
 sp = None
 sp_public = None
 zotify_available = False
+
+
+def is_spotify_app_premium_required_error(error):
+    """Return True if Spotify API request failed due to app-owner Premium requirement."""
+    if not isinstance(error, SpotifyException):
+        return False
+
+    error_text = str(error).lower()
+    return (
+        getattr(error, 'http_status', None) == 403 and
+        'active premium subscription required for the owner of the app' in error_text
+    )
 
 def check_zotify():
     global zotify_available
@@ -104,7 +116,7 @@ def init_spotify():
             try:
                 # Parse the authorization code from the URL
                 code = auth_manager.parse_response_code(response_url)
-                token_info = auth_manager.get_access_token(code)
+                token_info = auth_manager.get_access_token(code, as_dict=False)
                 print("\n✓ Successfully authenticated! Token saved for future use.")
             except Exception as e:
                 print(f"\n✗ Failed: {e}")
@@ -309,20 +321,32 @@ def get_spotify_liked_songs():
     print("Fetching Spotify liked songs...")
     liked_songs = []
     offset = 0
-    while True:
-        results = sp.current_user_saved_tracks(limit=50, offset=offset)
-        if not results['items']:
-            break
-        for item in results['items']:
-            track = item['track']
-            liked_songs.append({'name': track['name'], 
-                              'artist': ', '.join([a['name'] for a in track['artists']]),
-                              'album': track['album']['name'], 'uri': track['uri'],
-                              'source': 'spotify', 'collection': 'Spotify Liked Songs'})
-        offset += 50
-        print(f"  Fetched {len(liked_songs)} songs...", end='\r')
-        if len(results['items']) < 50:
-            break
+    try:
+        while True:
+            results = sp.current_user_saved_tracks(limit=50, offset=offset)
+            if not results['items']:
+                break
+            for item in results['items']:
+                track = item['track']
+                liked_songs.append({'name': track['name'], 
+                                  'artist': ', '.join([a['name'] for a in track['artists']]),
+                                  'album': track['album']['name'], 'uri': track['uri'],
+                                  'source': 'spotify', 'collection': 'Spotify Liked Songs'})
+            offset += 50
+            print(f"  Fetched {len(liked_songs)} songs...", end='\r')
+            if len(results['items']) < 50:
+                break
+    except SpotifyException as e:
+        if is_spotify_app_premium_required_error(e):
+            print("\n✗ Spotify API denied access to liked songs.")
+            print("  Active Premium subscription is required for the Spotify app owner.")
+            print("  Use credentials from an app owned by a Premium account, then retry.")
+            return []
+        print(f"\n✗ Spotify API error while fetching liked songs: {e}")
+        return []
+    except Exception as e:
+        print(f"\n✗ Error while fetching liked songs: {e}")
+        return []
     print(f"\nFound {len(liked_songs)} songs")
     return liked_songs
 
@@ -332,16 +356,28 @@ def get_spotify_playlists():
         return []
     playlists = []
     offset = 0
-    while True:
-        results = sp.current_user_playlists(limit=50, offset=offset)
-        if not results['items']:
-            break
-        for p in results['items']:
-            playlists.append({'id': p['id'], 'name': p['name'], 
-                            'tracks_total': p['tracks']['total'], 'source': 'spotify'})
-        offset += 50
-        if len(results['items']) < 50:
-            break
+    try:
+        while True:
+            results = sp.current_user_playlists(limit=50, offset=offset)
+            if not results['items']:
+                break
+            for p in results['items']:
+                playlists.append({'id': p['id'], 'name': p['name'], 
+                                'tracks_total': p['tracks']['total'], 'source': 'spotify'})
+            offset += 50
+            if len(results['items']) < 50:
+                break
+    except SpotifyException as e:
+        if is_spotify_app_premium_required_error(e):
+            print("\n✗ Spotify API denied access to playlists.")
+            print("  Active Premium subscription is required for the Spotify app owner.")
+            print("  Use credentials from an app owned by a Premium account, then retry.")
+            return []
+        print(f"\n✗ Spotify API error while fetching playlists: {e}")
+        return []
+    except Exception as e:
+        print(f"\n✗ Error while fetching playlists: {e}")
+        return []
     return playlists
 
 def get_spotify_playlist_songs(playlist_id, playlist_name):
@@ -350,20 +386,32 @@ def get_spotify_playlist_songs(playlist_id, playlist_name):
         return []
     songs = []
     offset = 0
-    while True:
-        results = sp.playlist_tracks(playlist_id, limit=100, offset=offset)
-        if not results['items']:
-            break
-        for item in results['items']:
-            if item['track']:
-                track = item['track']
-                songs.append({'name': track['name'], 
-                            'artist': ', '.join([a['name'] for a in track['artists']]),
-                            'album': track['album']['name'], 'uri': track['uri'],
-                            'source': 'spotify', 'collection': playlist_name})
-        offset += 100
-        if len(results['items']) < 100:
-            break
+    try:
+        while True:
+            results = sp.playlist_tracks(playlist_id, limit=100, offset=offset)
+            if not results['items']:
+                break
+            for item in results['items']:
+                if item['track']:
+                    track = item['track']
+                    songs.append({'name': track['name'], 
+                                'artist': ', '.join([a['name'] for a in track['artists']]),
+                                'album': track['album']['name'], 'uri': track['uri'],
+                                'source': 'spotify', 'collection': playlist_name})
+            offset += 100
+            if len(results['items']) < 100:
+                break
+    except SpotifyException as e:
+        if is_spotify_app_premium_required_error(e):
+            print(f"  ✗ Spotify API denied playlist tracks for '{playlist_name}'.")
+            print("    Active Premium subscription is required for the Spotify app owner.")
+            print("    Use credentials from an app owned by a Premium account, then retry.")
+            return []
+        print(f"  ✗ Spotify API error for '{playlist_name}': {e}")
+        return []
+    except Exception as e:
+        print(f"  ✗ Error fetching '{playlist_name}': {e}")
+        return []
     return songs
 
 # ============ YOUTUBE MUSIC FUNCTIONS ============
@@ -550,30 +598,33 @@ def main():
                     all_songs.extend(get_spotify_liked_songs())
                 if spotify_choice in ['2', '3']:
                     playlists = get_spotify_playlists()
-                    print("\nPlaylists:")
-                    for i, p in enumerate(playlists, 1):
-                        print(f"{i}. {p['name']} ({p['tracks_total']})")
-                    
-                    selected = []
-                    while not selected:
-                        choice = input("\nNumbers (comma-separated or 'all'): ").strip()
-                        if not choice:
-                            print("Please enter at least one number or 'all'.")
-                            continue
-                        if choice.lower() == 'all':
-                            selected = playlists
-                        else:
-                            try:
-                                indices = [int(x.strip())-1 for x in choice.split(',') if x.strip()]
-                                selected = [playlists[i] for i in indices if 0 <= i < len(playlists)]
-                                if not selected:
-                                    print("No valid playlists selected. Try again.")
-                            except ValueError:
-                                print("Invalid input. Enter numbers separated by commas or 'all'.")
-                    
-                    for p in selected:
-                        print(f"\nFetching '{p['name']}'...")
-                        all_songs.extend(get_spotify_playlist_songs(p['id'], p['name']))
+                    if not playlists:
+                        print("\n✗ No Spotify playlists available (or access denied).")
+                    else:
+                        print("\nPlaylists:")
+                        for i, p in enumerate(playlists, 1):
+                            print(f"{i}. {p['name']} ({p['tracks_total']})")
+                        
+                        selected = []
+                        while not selected:
+                            choice = input("\nNumbers (comma-separated or 'all'): ").strip()
+                            if not choice:
+                                print("Please enter at least one number or 'all'.")
+                                continue
+                            if choice.lower() == 'all':
+                                selected = playlists
+                            else:
+                                try:
+                                    indices = [int(x.strip())-1 for x in choice.split(',') if x.strip()]
+                                    selected = [playlists[i] for i in indices if 0 <= i < len(playlists)]
+                                    if not selected:
+                                        print("No valid playlists selected. Try again.")
+                                except ValueError:
+                                    print("Invalid input. Enter numbers separated by commas or 'all'.")
+                        
+                        for p in selected:
+                            print(f"\nFetching '{p['name']}'...")
+                            all_songs.extend(get_spotify_playlist_songs(p['id'], p['name']))
                 if spotify_choice == '4':
                     url = input("\nSpotify URL: ")
                     _, songs = get_spotify_playlist_from_url(url)
