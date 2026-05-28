@@ -16,7 +16,7 @@ load_dotenv()
 # Spotify API credentials
 SPOTIFY_CLIENT_ID = os.getenv('SPOTIFY_CLIENT_ID')
 SPOTIFY_CLIENT_SECRET = os.getenv('SPOTIFY_CLIENT_SECRET')
-SPOTIFY_REDIRECT_URI = os.getenv('SPOTIFY_REDIRECT_URI', 'http://localhost:8888/callback')
+SPOTIFY_REDIRECT_URI = os.getenv('SPOTIFY_REDIRECT_URI', 'http://127.0.0.1:8888/callback')
 SPOTIFY_CACHE_PATH = os.getenv('SPOTIFY_CACHE_PATH', '.spotify_cache')
 
 # Download settings
@@ -102,6 +102,7 @@ def init_spotify():
         if not token_info:
             print("\n=== Spotify Authentication ===")
             print("No cached token found. Starting OAuth flow...\n")
+            print(f"Using redirect URI: {SPOTIFY_REDIRECT_URI}\n")
             
             # Get the authorization URL
             auth_url = auth_manager.get_authorize_url()
@@ -135,8 +136,79 @@ def init_spotify_public():
             )
             sp_public = spotipy.Spotify(auth_manager=auth_manager)
         else:
-            sp_public = spotipy.Spotify()
+            print("⚠️  Spotify public URL fetching requires SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET.")
+            return None
     return sp_public
+
+
+def ensure_dotenv_file():
+    env_path = Path('.env')
+    if env_path.exists():
+        return
+    if Path('example.env').exists():
+        env_path.write_text(Path('example.env').read_text())
+    else:
+        env_path.write_text(
+            "SPOTIFY_CLIENT_ID=\n"
+            "SPOTIFY_CLIENT_SECRET=\n"
+            "SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/callback\n\n"
+            "AUDIO_FORMAT=opus\n"
+            "AUDIO_QUALITY=best\n"
+            "DOWNLOAD_FOLDER=downloaded_songs\n"
+            "MAX_CONCURRENT_DOWNLOADS=3\n"
+            "USE_ZOTIFY=false\n"
+            "ZOTIFY_USERNAME=\n"
+            "ZOTIFY_PASSWORD=\n"
+        )
+    print("✓ Created .env with default values.")
+
+
+def set_env_var(key, value):
+    env_path = Path('.env')
+    if not env_path.exists():
+        ensure_dotenv_file()
+    lines = env_path.read_text().splitlines()
+    key_prefix = f"{key}="
+    updated = False
+    for idx, line in enumerate(lines):
+        if line.startswith(key_prefix):
+            lines[idx] = f"{key}={value}"
+            updated = True
+            break
+    if not updated:
+        if lines and lines[-1] != '':
+            lines.append('')
+        lines.append(f"{key}={value}")
+    env_path.write_text('\n'.join(lines) + '\n')
+
+
+def prompt_for_spotify_credentials():
+    global SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REDIRECT_URI
+    if SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET:
+        return True
+
+    print("\n=== Spotify API credentials required ===")
+    print("Enter your Spotify Client ID, Client Secret, and redirect URI to access playlists, albums, or liked songs.")
+    SPOTIFY_CLIENT_ID = input("SPOTIFY_CLIENT_ID: ").strip()
+    SPOTIFY_CLIENT_SECRET = input("SPOTIFY_CLIENT_SECRET: ").strip()
+    redirect_default = SPOTIFY_REDIRECT_URI or 'http://127.0.0.1:8888/callback'
+    redirect_input = input(f"SPOTIFY_REDIRECT_URI [{redirect_default}]: ").strip()
+    SPOTIFY_REDIRECT_URI = redirect_input or redirect_default
+
+    if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
+        print("✗ Both SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET are required to continue.")
+        return False
+
+    save = input("Save these credentials to .env? (y/n): ").strip().lower()
+    if save == 'y':
+        ensure_dotenv_file()
+        set_env_var('SPOTIFY_CLIENT_ID', SPOTIFY_CLIENT_ID)
+        set_env_var('SPOTIFY_CLIENT_SECRET', SPOTIFY_CLIENT_SECRET)
+        set_env_var('SPOTIFY_REDIRECT_URI', SPOTIFY_REDIRECT_URI)
+        print("✓ Saved Spotify credentials and redirect URI to .env")
+
+    return True
+
 
 def get_ytmusic_cookie():
     """Get or load YouTube Music cookie"""
@@ -280,6 +352,9 @@ def get_spotify_playlist_from_url(spotify_url):
         client = init_spotify() if SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET else None
         if not client:
             client = init_spotify_public()
+        if not client:
+            print("✗ Spotify playlist/album lookup requires SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET.")
+            return None, []
         
         songs = []
         if url_type == 'album':
@@ -591,7 +666,11 @@ def main():
         
         if source_choice in ['1', '3']:
             print("\n--- SPOTIFY ---")
-            if SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET:
+            spotify_credentials_ok = True
+            if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
+                spotify_credentials_ok = prompt_for_spotify_credentials()
+
+            if spotify_credentials_ok:
                 print("1. Liked\n2. Playlists\n3. Both\n4. Public URL (playlist/album)")
                 spotify_choice = input("\nChoice (1-4): ")
                 if spotify_choice in ['1', '3']:
@@ -630,10 +709,12 @@ def main():
                     _, songs = get_spotify_playlist_from_url(url)
                     all_songs.extend(songs)
             else:
-                print("⚠️  No credentials. Public URL only.")
-                url = input("Spotify URL: ")
-                _, songs = get_spotify_playlist_from_url(url)
-                all_songs.extend(songs)
+                print("⚠️  Spotify cannot be used without API credentials.")
+                if source_choice == '1':
+                    print("Exiting because Spotify was the only selected source.")
+                    return
+                else:
+                    print("Continuing with YouTube Music only.")
         
         if source_choice in ['2', '3']:
             print("\n--- YOUTUBE MUSIC ---")

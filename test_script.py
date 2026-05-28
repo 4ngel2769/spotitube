@@ -1,5 +1,6 @@
 """Tests - Run with pytest test_script.py -v"""
 import pytest
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 import script
 
@@ -84,6 +85,42 @@ class TestEnvironmentVariables:
     
     def test_max_concurrent_downloads(self):
         assert isinstance(script.MAX_CONCURRENT_DOWNLOADS, int) and script.MAX_CONCURRENT_DOWNLOADS > 0
+
+    def test_default_spotify_redirect_uri_matches_readme(self):
+        assert script.SPOTIFY_REDIRECT_URI == 'http://127.0.0.1:8888/callback'
+
+    def test_ensure_dotenv_file_creates_default_from_example(self, tmp_path, monkeypatch):
+        example_path = tmp_path / 'example.env'
+        example_path.write_text('SPOTIFY_CLIENT_ID=your_id_here\nSPOTIFY_CLIENT_SECRET=your_secret_here\nSPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/callback\n\nAUDIO_FORMAT=opus\nAUDIO_QUALITY=best\n')
+        monkeypatch.chdir(tmp_path)
+
+        script.ensure_dotenv_file()
+
+        env_path = tmp_path / '.env'
+        assert env_path.exists()
+        content = env_path.read_text()
+        assert 'SPOTIFY_CLIENT_ID=your_id_here' in content
+        assert 'AUDIO_FORMAT=opus' in content
+        assert 'AUDIO_QUALITY=best' in content
+
+    def test_prompt_for_spotify_credentials_saves_to_env(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(script, 'SPOTIFY_CLIENT_ID', '')
+        monkeypatch.setattr(script, 'SPOTIFY_CLIENT_SECRET', '')
+        monkeypatch.setattr(script, 'SPOTIFY_REDIRECT_URI', '')
+        responses = {
+            'SPOTIFY_CLIENT_ID': 'client-id',
+            'SPOTIFY_CLIENT_SECRET': 'client-secret',
+            'SPOTIFY_REDIRECT_URI': 'http://127.0.0.1:8888/callback',
+            'Save these credentials to .env?': 'y'
+        }
+        monkeypatch.setattr('builtins.input', lambda prompt='': next(value for key, value in responses.items() if key in prompt))
+
+        assert script.prompt_for_spotify_credentials()
+        content = (tmp_path / '.env').read_text()
+        assert 'SPOTIFY_CLIENT_ID=client-id' in content
+        assert 'SPOTIFY_CLIENT_SECRET=client-secret' in content
+        assert 'SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/callback' in content
 
 
 class TestProcessSong:
@@ -209,6 +246,23 @@ class TestSpotifyAPI:
         )
         script.sp = mock_client
         assert script.get_spotify_playlists() == []
+
+    def test_init_spotify_public_requires_credentials(self, monkeypatch, capsys):
+        monkeypatch.setattr(script, 'SPOTIFY_CLIENT_ID', '')
+        monkeypatch.setattr(script, 'SPOTIFY_CLIENT_SECRET', '')
+        script.sp_public = None
+        assert script.init_spotify_public() is None
+        captured = capsys.readouterr()
+        assert "Spotify public URL fetching requires SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET" in captured.out
+
+    def test_get_spotify_playlist_from_url_requires_credentials(self, monkeypatch, capsys):
+        monkeypatch.setattr(script, 'SPOTIFY_CLIENT_ID', '')
+        monkeypatch.setattr(script, 'SPOTIFY_CLIENT_SECRET', '')
+        script.sp_public = None
+        collection, songs = script.get_spotify_playlist_from_url('https://open.spotify.com/playlist/123')
+        assert collection is None and songs == []
+        captured = capsys.readouterr()
+        assert "Spotify playlist/album lookup requires SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET" in captured.out
 
 
 class TestEndToEnd:
