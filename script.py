@@ -257,22 +257,85 @@ def prompt_for_spotify_credentials():
     return True
 
 
-def get_ytmusic_cookie():
-    """Get or load YouTube Music cookie"""
-    cookie_file = 'ytmusic_cookie.txt'
-    
-    if not os.path.exists(cookie_file):
-        print("\n=== YouTube Music Cookie Setup ===")
-        print("Paste your YouTube Music cookie here:")
-        print("(Get it from browser dev tools → Network → any request → cookie header)")
-        cookie = input().strip()
-        
-        with open(cookie_file, 'w') as f:
-            f.write(cookie)
-        print(f"✓ Cookie saved")
-        return cookie
-    with open(cookie_file, 'r') as f:
-        return f.read().strip()
+YTMUSIC_COOKIE_FILE = 'ytmusic_cookie.txt'
+
+
+def is_ytmusic_cookie_error(error):
+    message = str(error).lower()
+    return any(keyword in message for keyword in [
+        'playlist does not exist',
+        'this playlist does not exist',
+        'login required',
+        'sign in',
+        'cookie',
+        'authentication',
+        'status code: 401',
+        'status code: 403',
+        'forbidden',
+    ])
+
+
+def prompt_for_ytmusic_cookie():
+    print("\n=== YouTube Music Cookie Setup ===")
+    print("Paste your YouTube Music cookie here:")
+    print("(Get it from browser dev tools → Network → any request → cookie header)")
+    cookie = input().strip()
+
+    if not cookie:
+        print("✗ Cookie cannot be empty. Please try again.")
+        return prompt_for_ytmusic_cookie()
+
+    with open(YTMUSIC_COOKIE_FILE, 'w', encoding='utf-8') as f:
+        f.write(cookie)
+    print("✓ Cookie saved")
+    return cookie
+
+
+def get_ytmusic_cookie(force_refresh=False):
+    if force_refresh and os.path.exists(YTMUSIC_COOKIE_FILE):
+        try:
+            os.remove(YTMUSIC_COOKIE_FILE)
+        except OSError:
+            pass
+
+    if not os.path.exists(YTMUSIC_COOKIE_FILE):
+        return prompt_for_ytmusic_cookie()
+
+    with open(YTMUSIC_COOKIE_FILE, 'r', encoding='utf-8') as f:
+        cookie = f.read().strip()
+
+    if not cookie:
+        return prompt_for_ytmusic_cookie()
+
+    return cookie
+
+
+def write_ytmusic_cookiefile(cookie):
+    cookie_lines = ['# Netscape HTTP Cookie File\n']
+    for pair in cookie.split('; '):
+        if '=' in pair:
+            name, value = pair.split('=', 1)
+            cookie_lines.append(f'.youtube.com\tTRUE\t/\tTRUE\t0\t{name}\t{value}\n')
+    with open('cookies.txt', 'w', encoding='utf-8') as f:
+        f.writelines(cookie_lines)
+
+
+def extract_ytmusic_info(url):
+    for attempt in range(2):
+        cookie = get_ytmusic_cookie(force_refresh=(attempt > 0))
+        write_ytmusic_cookiefile(cookie)
+        try:
+            with YoutubeDL({'quiet': True, 'no_warnings': True, 'extract_flat': True,
+                           'cookiefile': 'cookies.txt'}) as ydl:
+                return ydl.extract_info(url, download=False)
+        except Exception as e:
+            if attempt == 0 and is_ytmusic_cookie_error(e):
+                print("\n⚠️ YouTube Music cookie appears invalid or expired.")
+                print("Please paste a fresh cookie to continue.")
+                get_ytmusic_cookie(force_refresh=True)
+                continue
+            raise
+
 
 def download_with_zotify(track_uri, track_name, artist_name, subfolder=None):
     if not zotify_available:
@@ -568,38 +631,28 @@ def parse_youtube_url(url):
     return None
 
 def get_ytmusic_liked_songs():
-    cookie = get_ytmusic_cookie()
-    cookie_lines = ['# Netscape HTTP Cookie File\n']
-    for pair in cookie.split('; '):
-        if '=' in pair:
-            name, value = pair.split('=', 1)
-            cookie_lines.append(f'.youtube.com\tTRUE\t/\tTRUE\t0\t{name}\t{value}\n')
-    with open('cookies.txt', 'w') as f:
-        f.writelines(cookie_lines)
-    
     liked_songs = []
     try:
-        with YoutubeDL({'quiet': True, 'no_warnings': True, 'extract_flat': True, 
-                       'cookiefile': 'cookies.txt'}) as ydl:
-            result = ydl.extract_info('https://music.youtube.com/playlist?list=LM', download=False)
-            if result and 'entries' in result:
-                for entry in result['entries']:
-                    try:
-                        if entry:
-                            title = entry.get('title', 'Unknown')
-                            if ' - ' in title:
-                                artist, song = title.split(' - ', 1)
-                            else:
-                                artist, song = entry.get('uploader', 'Unknown'), title
-                            liked_songs.append({'name': song.strip(), 'artist': artist.strip(),
-                                              'album': 'Unknown', 'videoId': entry.get('id', ''),
-                                              'source': 'ytmusic', 'collection': 'YouTube Music Liked Songs'})
-                            print(f"  Fetched {len(liked_songs)} songs...", end='\r')
-                    except:
-                        continue
+        result = extract_ytmusic_info('https://music.youtube.com/playlist?list=LM')
+        if result and 'entries' in result:
+            for entry in result['entries']:
+                try:
+                    if entry:
+                        title = entry.get('title', 'Unknown')
+                        if ' - ' in title:
+                            artist, song = title.split(' - ', 1)
+                        else:
+                            artist, song = entry.get('uploader', 'Unknown'), title
+                        liked_songs.append({'name': song.strip(), 'artist': artist.strip(),
+                                            'album': 'Unknown', 'videoId': entry.get('id', ''),
+                                            'source': 'ytmusic', 'collection': 'YouTube Music Liked Songs'})
+                        print(f"  Fetched {len(liked_songs)} songs...", end='\r')
+                except:
+                    continue
     except Exception as e:
         print(f"\n✗ Error: {e}")
         return []
+
     print(f"\nFound {len(liked_songs)} songs")
     return liked_songs
 
@@ -608,37 +661,27 @@ def get_ytmusic_playlist_from_url(playlist_url):
     if not playlist_id:
         print("✗ Invalid YouTube URL")
         return None, []
-    cookie = get_ytmusic_cookie()
-    cookie_lines = ['# Netscape HTTP Cookie File\n']
-    for pair in cookie.split('; '):
-        if '=' in pair:
-            name, value = pair.split('=', 1)
-            cookie_lines.append(f'.youtube.com\tTRUE\t/\tTRUE\t0\t{name}\t{value}\n')
-    with open('cookies.txt', 'w') as f:
-        f.writelines(cookie_lines)
-    
+
     songs = []
     playlist_name = 'YouTube Music Playlist'
     try:
-        with YoutubeDL({'quiet': True, 'no_warnings': True, 'extract_flat': True,
-                       'cookiefile': 'cookies.txt'}) as ydl:
-            result = ydl.extract_info(playlist_url, download=False)
-            if result and 'title' in result:
-                playlist_name = result['title']
-            if result and 'entries' in result:
-                for entry in result['entries']:
-                    try:
-                        if entry:
-                            title = entry.get('title', 'Unknown')
-                            if ' - ' in title:
-                                artist, song = title.split(' - ', 1)
-                            else:
-                                artist, song = entry.get('uploader', 'Unknown'), title
-                            songs.append({'name': song.strip(), 'artist': artist.strip(),
-                                        'album': 'Unknown', 'videoId': entry.get('id', ''),
-                                        'source': 'ytmusic', 'collection': playlist_name})
-                    except:
-                        continue
+        result = extract_ytmusic_info(playlist_url)
+        if result and 'title' in result:
+            playlist_name = result['title']
+        if result and 'entries' in result:
+            for entry in result['entries']:
+                try:
+                    if entry:
+                        title = entry.get('title', 'Unknown')
+                        if ' - ' in title:
+                            artist, song = title.split(' - ', 1)
+                        else:
+                            artist, song = entry.get('uploader', 'Unknown'), title
+                        songs.append({'name': song.strip(), 'artist': artist.strip(),
+                                      'album': 'Unknown', 'videoId': entry.get('id', ''),
+                                      'source': 'ytmusic', 'collection': playlist_name})
+                except:
+                    continue
         print(f"✓ Found: {playlist_name} ({len(songs)} tracks)")
     except Exception as e:
         print(f"✗ Error: {e}")
