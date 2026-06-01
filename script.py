@@ -373,13 +373,13 @@ def download_youtube_audio(url, track_name, artist_name, subfolder=None, output_
 
     # Configure format selection based on user preference
     if AUDIO_FORMAT == 'opus':
-        # Download best opus audio
-        format_str = 'bestaudio[ext=webm]/bestaudio'
+        # Download best audio and prefer WebM first, then m4a, then any audio
+        format_str = 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best'
         postprocessors = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'opus', 
                           'preferredquality': AUDIO_QUALITY if AUDIO_QUALITY != 'best' else '0'}]
     elif AUDIO_FORMAT == 'm4a':
-        # Download best m4a/aac audio
-        format_str = 'bestaudio[ext=m4a]/bestaudio'
+        # Download best m4a/aac audio, fallback to any audio
+        format_str = 'bestaudio[ext=m4a]/bestaudio/best'
         postprocessors = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'aac',
                           'preferredquality': AUDIO_QUALITY if AUDIO_QUALITY != 'best' else '0'}]
     elif AUDIO_FORMAT == 'flac':
