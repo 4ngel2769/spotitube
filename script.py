@@ -428,9 +428,14 @@ def download_youtube_audio(url, track_name, artist_name, subfolder=None, output_
         'extractaudio': True,
         'audioformat': AUDIO_FORMAT,
         'audioquality': AUDIO_QUALITY,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+        },
         'postprocessor_args': ['-metadata', f'title={track_name}', '-metadata', f'artist={artist_name}',
                               '-metadata', f'album={subfolder if subfolder else "Downloaded"}'],
     }
+    if os.path.exists('cookies.txt'):
+        ydl_opts['cookiefile'] = 'cookies.txt'
     if YTDLP_METADATA_TEMPLATE:
         ydl_opts['metadata'] = [YTDLP_METADATA_TEMPLATE]
     
@@ -738,12 +743,12 @@ def process_song(song, download, index, total, output_template=None):
         yt_result = search_youtube_for_song(song['name'], song['artist'], download=download, subfolder=safe_subfolder, output_template=output_template)
         result['youtube'] = yt_result
         if yt_result:
-            if download and yt_result.get('download_path'):
-                return (True, result, f"[{index}/{total}] ✓ YouTube: {song['name']} - {song['artist']}")
-            else:
-                return (True, result, f"[{index}/{total}] ✓ Found: {song['name']}")
-        else:
-            return (False, result, f"[{index}/{total}] ✗ Not found: {song['name']}")
+            if download:
+                if yt_result.get('download_path'):
+                    return (True, result, f"[{index}/{total}] ✓ YouTube: {song['name']} - {song['artist']}")
+                return (False, result, f"[{index}/{total}] ✗ Failed: {song['name']}")
+            return (True, result, f"[{index}/{total}] ✓ Found: {song['name']}")
+        return (False, result, f"[{index}/{total}] ✗ Not found: {song['name']}")
     except Exception as e:
         return (False, result, f"[{index}/{total}] ✗ Error: {song['name']}")
 
