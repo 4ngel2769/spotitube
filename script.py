@@ -6,9 +6,37 @@ import time
 import json
 import os
 import re
+import shutil
+import argparse
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
+
+
+def env_bool(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ('1', 'true', 'yes', 'y')
+
+
+def env_list(name, default=None, sep=','):
+    value = os.getenv(name)
+    if value is None:
+        return list(default) if default is not None else []
+    return [item.strip() for item in value.split(sep) if item.strip()]
+
+
+def guess_node_runtime():
+    node_path = shutil.which('node')
+    return f'node:{node_path}' if node_path else 'node'
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Download music from Spotify and YouTube using yt-dlp')
+    parser.add_argument('-o', '--output-template', dest='output_template',
+                        help='yt-dlp output template to use for saved files')
+    return parser.parse_args()
 
 
 # Load environment variables from .env file
@@ -21,9 +49,28 @@ SPOTIFY_CACHE_PATH = os.getenv('SPOTIFY_CACHE_PATH', '.spotify_cache')
 
 # Download settings
 DOWNLOAD_FOLDER = os.getenv('DOWNLOAD_FOLDER', 'downloaded_songs')
-AUDIO_FORMAT = os.getenv('AUDIO_FORMAT', 'opus')  # Options: opus, m4a, mp3, flac, wav
-AUDIO_QUALITY = os.getenv('AUDIO_QUALITY', 'best')  # Options: best, 256, 192, 160, 128
+AUDIO_FORMAT = os.getenv('AUDIO_FORMAT', os.getenv('YTDLP_AUDIO_FORMAT', 'opus'))  # Options: opus, m4a, mp3, flac, wav
+AUDIO_QUALITY = os.getenv('AUDIO_QUALITY', os.getenv('YTDLP_AUDIO_QUALITY', 'best'))  # Options: best, 256, 192, 160, 128
 MAX_CONCURRENT_DOWNLOADS = int(os.getenv('MAX_CONCURRENT_DOWNLOADS', '3'))
+
+# yt-dlp options (can be configured with environment variables)
+YTDLP_FFMPEG_LOCATION = os.getenv('YTDLP_FFMPEG_LOCATION')
+YTDLP_OUTPUT_TEMPLATE = os.getenv('YTDLP_OUTPUT_TEMPLATE')
+YTDLP_DOWNLOAD_ARCHIVE = os.getenv('YTDLP_DOWNLOAD_ARCHIVE', 'channels_archive.txt')
+YTDLP_RETRIES = int(os.getenv('YTDLP_RETRIES', '10'))
+YTDLP_FRAGMENT_RETRIES = int(os.getenv('YTDLP_FRAGMENT_RETRIES', '10'))
+YTDLP_RETRY_SLEEP = int(os.getenv('YTDLP_RETRY_SLEEP', '5'))
+YTDLP_SLEEP_INTERVAL = int(os.getenv('YTDLP_SLEEP_INTERVAL', '2'))
+YTDLP_MAX_SLEEP_INTERVAL = int(os.getenv('YTDLP_MAX_SLEEP_INTERVAL', '5'))
+YTDLP_IGNORE_ERRORS = env_bool('YTDLP_IGNORE_ERRORS', True)
+YTDLP_NO_ABORT_ON_ERROR = env_bool('YTDLP_NO_ABORT_ON_ERROR', True)
+YTDLP_CONCURRENT_FRAGMENTS = int(os.getenv('YTDLP_CONCURRENT_FRAGMENTS', '4'))
+YTDLP_JSRUNTIMES = env_list('YTDLP_JSRUNTIMES', default=[os.getenv('YTDLP_JS_RUNTIME', guess_node_runtime())])
+YTDLP_REMOTE_COMPONENTS = env_list('YTDLP_REMOTE_COMPONENTS', default=['ejs:github'])
+YTDLP_CONVERT_THUMBNAILS = os.getenv('YTDLP_CONVERT_THUMBNAILS', 'png')
+YTDLP_EMBED_THUMBNAIL = env_bool('YTDLP_EMBED_THUMBNAIL', True)
+YTDLP_ADD_METADATA = env_bool('YTDLP_ADD_METADATA', True)
+YTDLP_METADATA_TEMPLATE = os.getenv('YTDLP_METADATA_TEMPLATE', '%(title)s:%(meta_title)s')
 
 # Audio format quality guide for user reference
 # opus: Best efficiency. Good quality at lower bitrates.
@@ -248,7 +295,7 @@ def download_with_zotify(track_uri, track_name, artist_name, subfolder=None):
         print(f"  ✗ Zotify failed: {e}")
     return None
 
-def download_youtube_audio(url, track_name, artist_name, subfolder=None):
+def download_youtube_audio(url, track_name, artist_name, subfolder=None, output_template=None):
     """Download audio from YouTube"""
     # Determine the download path
     if subfolder:
@@ -284,24 +331,45 @@ def download_youtube_audio(url, track_name, artist_name, subfolder=None):
         format_str = 'bestaudio/best'
         postprocessors = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3',
                           'preferredquality': AUDIO_QUALITY if AUDIO_QUALITY != 'best' else '320'}]
-    # Add metadata and thumbnail
-    postprocessors.extend([
-        {'key': 'FFmpegMetadata', 'add_metadata': True},
-        {'key': 'EmbedThumbnail'}
-    ])
+
+    if YTDLP_ADD_METADATA:
+        postprocessors.append({'key': 'FFmpegMetadata', 'add_metadata': True})
+    if YTDLP_EMBED_THUMBNAIL:
+        postprocessors.append({'key': 'EmbedThumbnail'})
     
+    ytdlp_outtmpl = output_template or YTDLP_OUTPUT_TEMPLATE or f'{download_path}/%(uploader)s/%(title)s.%(ext)s'
+
     ydl_opts = {
         'format': format_str,
         'postprocessors': postprocessors,
-        'outtmpl': f'{download_path}/{safe_filename}.%(ext)s',
+        'outtmpl': ytdlp_outtmpl,
         'writethumbnail': True,
         'quiet': True,
         'no_warnings': True,
         'prefer_ffmpeg': True,
-        # Add metadata for better Navidrome compatibility
+        'ffmpeg_location': YTDLP_FFMPEG_LOCATION,
+        'download_archive': YTDLP_DOWNLOAD_ARCHIVE,
+        'retries': YTDLP_RETRIES,
+        'fragment_retries': YTDLP_FRAGMENT_RETRIES,
+        'retry_sleep': YTDLP_RETRY_SLEEP,
+        'sleep_interval': YTDLP_SLEEP_INTERVAL,
+        'max_sleep_interval': YTDLP_MAX_SLEEP_INTERVAL,
+        'ignoreerrors': YTDLP_IGNORE_ERRORS,
+        'abort_on_error': not YTDLP_NO_ABORT_ON_ERROR,
+        'concurrent_fragments': YTDLP_CONCURRENT_FRAGMENTS,
+        'jsruntimes': YTDLP_JSRUNTIMES,
+        'remote_components': YTDLP_REMOTE_COMPONENTS,
+        'convert_thumbnails': YTDLP_CONVERT_THUMBNAILS,
+        'embed_thumbnail': YTDLP_EMBED_THUMBNAIL,
+        'add_metadata': YTDLP_ADD_METADATA,
+        'extractaudio': True,
+        'audioformat': AUDIO_FORMAT,
+        'audioquality': AUDIO_QUALITY,
         'postprocessor_args': ['-metadata', f'title={track_name}', '-metadata', f'artist={artist_name}',
                               '-metadata', f'album={subfolder if subfolder else "Downloaded"}'],
     }
+    if YTDLP_METADATA_TEMPLATE:
+        ydl_opts['metadata'] = [YTDLP_METADATA_TEMPLATE]
     
     try:
         with YoutubeDL(ydl_opts) as ydl:
@@ -310,7 +378,7 @@ def download_youtube_audio(url, track_name, artist_name, subfolder=None):
     except:
         return None
 
-def search_youtube_for_song(track_name, artist_name, download=False, subfolder=None):
+def search_youtube_for_song(track_name, artist_name, download=False, subfolder=None, output_template=None):
     query = f"{track_name} {artist_name}"
     try:
         with YoutubeDL({'quiet': True, 'no_warnings': True, 'extract_flat': True, 
@@ -322,7 +390,7 @@ def search_youtube_for_song(track_name, artist_name, download=False, subfolder=N
                             'url': f"https://www.youtube.com/watch?v={video['id']}", 'id': video['id']}
                 if download:
                     video_info['download_path'] = download_youtube_audio(
-                        video_info['url'], track_name, artist_name, subfolder)
+                        video_info['url'], track_name, artist_name, subfolder, output_template=output_template)
                 return video_info
     except:
         pass
@@ -599,7 +667,7 @@ def process_playlists_file():
         print()
     return all_songs
 
-def process_song(song, download, index, total):
+def process_song(song, download, index, total, output_template=None):
     result = {'spotify': song, 'youtube': None}
     collection = song.get('collection', 'Unknown')
     safe_subfolder = "".join(c for c in collection if c.isalnum() or c in (' ', '-', '_')).strip()
@@ -615,7 +683,7 @@ def process_song(song, download, index, total):
             video_url = f"https://www.youtube.com/watch?v={song['videoId']}"
             result['youtube'] = {'title': song['name'], 'url': video_url, 'id': song['videoId']}
             if download:
-                download_path = download_youtube_audio(video_url, song['name'], song['artist'], safe_subfolder)
+                download_path = download_youtube_audio(video_url, song['name'], song['artist'], safe_subfolder, output_template=output_template)
                 if download_path:
                     result['youtube']['download_path'] = download_path
                     return (True, result, f"[{index}/{total}] ✓ YouTube: {song['name']} - {song['artist']}")
@@ -624,7 +692,7 @@ def process_song(song, download, index, total):
             else:
                 return (True, result, f"[{index}/{total}] ✓ Found: {song['name']}")
         
-        yt_result = search_youtube_for_song(song['name'], song['artist'], download=download, subfolder=safe_subfolder)
+        yt_result = search_youtube_for_song(song['name'], song['artist'], download=download, subfolder=safe_subfolder, output_template=output_template)
         result['youtube'] = yt_result
         if yt_result:
             if download and yt_result.get('download_path'):
@@ -637,6 +705,7 @@ def process_song(song, download, index, total):
         return (False, result, f"[{index}/{total}] ✗ Error: {song['name']}")
 
 def main():
+    args = parse_args()
     print("=== Spotify & YouTube Music Downloader ===\n")
     check_zotify()
     print("\n⚠️  Audio quality info:")
@@ -748,7 +817,7 @@ def main():
     
     # Process songs with threading for better performance
     with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_DOWNLOADS) as executor:
-        futures = {executor.submit(process_song, song, download_songs, i, len(unique_songs)): song
+        futures = {executor.submit(process_song, song, download_songs, i, len(unique_songs), args.output_template): song
                   for i, song in enumerate(unique_songs, 1)}
         for future in as_completed(futures):
             success, result, message = future.result()
